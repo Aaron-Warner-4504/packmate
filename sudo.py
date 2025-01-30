@@ -3,12 +3,10 @@ import requests
 import google.generativeai as genai
 from groq import Groq
 import time
-from meteostat import Daily, Point
-from datetime import datetime, timedelta
+from datetime import datetime
 import re
 from io import BytesIO
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+from docx import Document  # Import python-docx for DOCX generation
 
 # Set page configuration (MUST be the first Streamlit command)
 st.set_page_config(page_title="Smart Packing Assistant", page_icon="🎒", layout="wide")
@@ -16,7 +14,6 @@ st.set_page_config(page_title="Smart Packing Assistant", page_icon="🎒", layou
 # Configure API keys (replace with environment variables for security)
 GEMINI_API_KEY = "AIzaSyBDEnO1lXyhUd6NctHbRqESI6BMdk61a8E"
 GROQ_API_KEY = "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"
-OPENWEATHER_API_KEY = "f65ed6d0474abe2144b0d4766558ea99"
 OPENCAGE_API_KEY = "993e21d6cca746a2bbebd2f6e02a8316"
 
 # Configure Gemini API
@@ -24,7 +21,6 @@ genai.configure(api_key=GEMINI_API_KEY)
 
 # Cache for storing location coordinates to reduce API calls
 location_cache = {}
-RATE_LIMIT_SECONDS = 1
 def get_lat_lon_from_opencage(location):
     if location in location_cache:
         return location_cache[location]
@@ -39,26 +35,38 @@ def get_lat_lon_from_opencage(location):
             return lat, lon
     return None, None
 
-def create_pdf(weather, packing_list):
+def create_docx(weather, packing_list):
+    """Generates a DOCX file with bold formatting for asterisk-marked words."""
     buffer = BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=letter)
-    pdf.setTitle("Packing List")
-    pdf.drawString(100, 750, "Smart Packing Assistant")
-    pdf.drawString(100, 730, "Weather Forecast:")
-    pdf.drawString(120, 715, weather)
-    pdf.drawString(100, 695, "Packing List:")
-    y_position = 680
+    doc = Document()
+    doc.add_heading("Smart Packing Assistant", level=1)
+    
+    doc.add_paragraph(f"Weather Forecast: {weather}\n")
+    doc.add_heading("Packing List:", level=2)
+    
     for item in packing_list:
-        pdf.drawString(120, y_position, f"- {item}")
-        y_position -= 15
-    pdf.save()
+        para = doc.add_paragraph("- ")  # Bullet point
+        # Detect word patterns for bold
+        match = re.findall(r"\([^]+)\*", item)  # Match text between asterisks
+        if match:
+            # Replace word with bold version
+            parts = re.split(r"(\[^]+\*)", item)  # Split text by asterisk-marked words
+            for part in parts:
+                if part.startswith("") and part.endswith(""):  # If it's marked by asterisks
+                    run = para.add_run(part[1:-1])  # Remove asterisks
+                    run.bold = True  # Make it bold
+                else:
+                    para.add_run(part)  # Add the rest as normal text
+        else:
+            para.add_run(item)
+
+    doc.save(buffer)
     buffer.seek(0)
     return buffer
 
 
 def extract_items_from_suggestions(suggestions):
     return [re.sub(r"[:•\-]+", "", line).strip() for line in suggestions.split("\n") if line.strip()]
-
 
 def get_packing_suggestions(location, activities, people):
     model = genai.GenerativeModel(model_name="gemini-2.0-flash-exp")
@@ -69,7 +77,6 @@ def get_packing_suggestions(location, activities, people):
         return extract_items_from_suggestions(response.text)
     except:
         return []
-
 
 def fallback_packing_suggestions(location, activities, people):
     client = Groq(api_key=GROQ_API_KEY)
@@ -86,7 +93,6 @@ def fallback_packing_suggestions(location, activities, people):
         return extract_items_from_suggestions(completion.choices[0].message.get("content", ""))
     except:
         return []
-
 
 # Streamlit UI
 st.title("🎒 Personalized Packing List Generator")
@@ -125,13 +131,13 @@ if st.sidebar.button("Generate Packing List 🧳"):
             st.subheader("📦 Personalized Packing List")
             st.write("\n".join(packing_list) if packing_list else "No suggestions available.")
 
-            # Generate and provide download option for PDF
-            pdf_file = create_pdf(weather, packing_list)
+            # Generate and provide download option for DOCX
+            docx_file = create_docx(weather, packing_list)
             st.download_button(
-                label="📥 Download Packing List as PDF",
-                data=pdf_file,
-                file_name="Packing_List.pdf",
-                mime="application/pdf"
+                label="📥 Download Packing List as DOCX",
+                data=docx_file,
+                file_name="Packing_List.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
         else:
             st.error("❌ Unable to retrieve location coordinates.")
