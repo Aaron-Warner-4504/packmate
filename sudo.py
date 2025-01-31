@@ -114,18 +114,43 @@ def get_packing_suggestions(location, activities, trip_type, trip_duration, peop
             return []
 
 
-def get_minimalist_packing_list():
-    """Generate a minimalist packing list with only the essential items."""
-    return [
-        "Clothing (2-3 shirts, 2 pants, 1 jacket)",
-        "Toiletries (toothbrush, toothpaste, soap, deodorant)",
-        "Charger and power bank",
-        "Passport/ID",
-        "First aid kit (band-aids, pain relievers)",
-        "Comfortable shoes",
-        "Sunglasses and sunscreen",
-        "Water bottle"
-    ]
+def generate_minimalist_list(location, activities, trip_type, trip_duration, people):
+    """Generate a minimalist packing list based on the trip details."""
+    model = genai.GenerativeModel(model_name="gemini-2.0-flash-exp")
+    chat_session = model.start_chat(history=[])
+
+    people_info = "; ".join(
+        [f"{p['name']} (Age: {p['age']}, Gender: {p['gender']}, Medical Needs: {p['medical_issues']})" for p in people]
+    )
+    activities = activities if activities else "general activities"
+
+    # Generate a minimalist packing list prompt
+    prompt = f"Suggest a minimalist packing list for travelers going to {location} for {activities}. The trip type is {trip_type}. " \
+             f"Include only essential items based on the trip duration of {trip_duration} days and travelers' details: {people_info}. " \
+             f"Make it lightweight and only include what is necessary."
+
+    try:
+        response = chat_session.send_message(prompt)
+        return extract_items_from_suggestions(response.text)
+    except Exception as e:
+        st.warning("❌ Gemini failed, falling back to LLaMA...")
+        # Fallback model (LLaMA via Groq)
+        client = Groq(api_key=GROQ_API_KEY)
+        chat_session = client.chat.completions.create
+
+        try:
+            completion = chat_session.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "system", "content": prompt}],
+                temperature=1,
+                max_completion_tokens=200,
+                top_p=1,
+                stream=False
+            )
+            return extract_items_from_suggestions(completion.choices[0].message.get("content", ""))
+        except Exception as e:
+            st.error(f"❌ Error generating minimalist packing list from both models: {e}")
+            return []
 
 
 def filter_excessive_items(packing_list, trip_duration):
@@ -198,7 +223,7 @@ if st.sidebar.button("Generate Packing List 🧳"):
 
             # Generate packing list based on selected list type
             if list_type == "Minimalist List":
-                packing_list = get_minimalist_packing_list()
+                packing_list = generate_minimalist_list(location, activities, trip_type, trip_duration, people)
             else:
                 packing_list = get_packing_suggestions(location, activities, trip_type, trip_duration, people)
 
