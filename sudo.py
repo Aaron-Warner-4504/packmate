@@ -76,45 +76,56 @@ def extract_items_from_suggestions(suggestions):
 
 
 def get_packing_suggestions(location, activities, trip_type, trip_duration, people):
+    # Primary model (Gemini)
     model = genai.GenerativeModel(model_name="gemini-2.0-flash-exp")
     chat_session = model.start_chat(history=[])
+
     people_info = "; ".join(
         [f"{p['name']} (Age: {p['age']}, Gender: {p['gender']}, Medical Needs: {p['medical_issues']})" for p in people]
     )
-    prompt = f"Suggest a structured packing list for travelers going to {location} for {activities}. " \
-             f"The trip duration is {'a permanent relocation' if trip_type == 'Permanent Relocation' else f'exactly {trip_duration} days long'}. " \
-             f"Travelers: {people_info}. Pack only essential items based on trip length."
+    # Default to "general activities" if activities are not provided
+    activities = activities if activities else "general activities"
+
+    # Create the prompt dynamically based on trip type
+    prompt = f"Suggest a packing list for travelers going to {location} for {activities}. The trip type is {trip_type}. " \
+             f"Include items based on the trip duration of {trip_duration} days and travelers' details: {people_info}."
+
     try:
         response = chat_session.send_message(prompt)
         return extract_items_from_suggestions(response.text)
-    except:
-        return []
-def fallback_packing_suggestions(location, activities, trip_type, trip_duration, people):
-    client = Groq(api_key=GROQ_API_KEY)
-    
-    # Construct the correct query with people details and the specific prompt
-    people_info = "; ".join(
-        [f"{p['name']} (Age: {p['age']}, Gender: {p['gender']}, Medical Needs: {p['medical_issues']})" for p in people]
-    )
-    query = f"Suggest a personalized packing list for {len(people)} people traveling to {location} for {activities}. " \
-            f"Include age, gender, and medical needs for each traveler. Traveler details: {people_info}."
-    
-    try:
-        # Call LLaMA 3.3 model with the updated query
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "system", "content": query}],
-            temperature=1,
-            max_completion_tokens=200,
-            top_p=1,
-            stream=False
-        )
-        # Extract and return the suggestions
-        return extract_items_from_suggestions(completion.choices[0].message.get("content", ""))
     except Exception as e:
-        st.error(f"❌ Error generating fallback packing list: {e}")
-        return []
-        
+        st.warning("❌ Gemini failed, falling back to LLaMA...")
+        # Fallback model (LLaMA via Groq)
+        client = Groq(api_key=GROQ_API_KEY)
+        chat_session = client.chat.completions.create
+
+        try:
+            completion = chat_session.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "system", "content": prompt}],
+                temperature=1,
+                max_completion_tokens=200,
+                top_p=1,
+                stream=False
+            )
+            return extract_items_from_suggestions(completion.choices[0].message.get("content", ""))
+        except Exception as e:
+            st.error(f"❌ Error generating packing list from both models: {e}")
+            return []
+
+
+def get_minimalist_packing_list():
+    """Generate a minimalist packing list with only the essential items."""
+    return [
+        "Clothing (2-3 shirts, 2 pants, 1 jacket)",
+        "Toiletries (toothbrush, toothpaste, soap, deodorant)",
+        "Charger and power bank",
+        "Passport/ID",
+        "First aid kit (band-aids, pain relievers)",
+        "Comfortable shoes",
+        "Sunglasses and sunscreen",
+        "Water bottle"
+    ]
 
 
 def filter_excessive_items(packing_list, trip_duration):
@@ -142,16 +153,25 @@ st.sidebar.header("🌍 Trip Details")
 location = st.sidebar.text_input("Enter a location:")
 start_date = st.sidebar.date_input("Start Date", datetime.today())
 
-trip_type = st.sidebar.radio("Trip Type", ["Temporary", "Permanent Relocation"])
+# Dropdown for trip type options with Permanent Relocation
+trip_type = st.sidebar.selectbox("Select Trip Type", [
+    "Business Trip", "Permanent Relocation", "Solo Trip",
+    "Educational Trip", "Romantic Trip", "Adventure Trip"
+])
 
-# Conditionally display End Date only if "Temporary" is selected
+# Conditionally display End Date only if "Permanent Relocation" is not selected
 end_date_container = st.sidebar.empty()
-if trip_type == "Temporary":
+if trip_type != "Permanent Relocation":
     end_date = end_date_container.date_input("End Date", datetime.today())
 else:
-    end_date = None  # Set to None when not needed
+    end_date = None  # No End Date for Permanent Relocation
 
-activities = st.sidebar.text_area("Enter your activities (comma-separated):")
+# Make activities field optional
+activities = st.sidebar.text_area("Enter your activities (comma-separated):", value="")
+
+# Choose between Minimalist or Detailed List
+list_type = st.sidebar.selectbox("Select Packing List Type", ["Detailed List", "Minimalist List"])
+
 num_people = st.sidebar.number_input("Number of people:", min_value=1, step=1)
 
 people = []
@@ -164,18 +184,23 @@ for i in range(num_people):
         people.append({"name": name, "gender": gender, "age": age, "medical_issues": medical_issues})
 
 if st.sidebar.button("Generate Packing List 🧳"):
-    if not location or not activities or not people:
+    if not location or not people:
         st.error("🚨 Please enter all required fields.")
     else:
         lat, lon = get_lat_lon_from_opencage(location)
         if lat and lon:
-            if trip_type == "Temporary":
+            if trip_type != "Permanent Relocation":
                 trip_duration = max(1, (end_date - start_date).days)  # Ensure at least 1 day
             else:
                 trip_duration = "Permanent"
 
             weather = get_weather(lat, lon, start_date)
-            packing_list = get_packing_suggestions(location, activities, trip_type, trip_duration, people)
+
+            # Generate packing list based on selected list type
+            if list_type == "Minimalist List":
+                packing_list = get_minimalist_packing_list()
+            else:
+                packing_list = get_packing_suggestions(location, activities, trip_type, trip_duration, people)
 
             # Apply item filtering
             packing_list = filter_excessive_items(packing_list, trip_duration)
@@ -183,7 +208,7 @@ if st.sidebar.button("Generate Packing List 🧳"):
             st.success("✅ Packing list generated successfully!")
             st.subheader("🌤 Weather Forecast")
             st.info(weather)
-            st.subheader("📦 Personalized Packing List")
+            st.subheader(f"📦 {list_type}")
             for item in packing_list:
                 st.write(f"- {item}")
 
