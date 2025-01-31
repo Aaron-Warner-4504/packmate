@@ -89,6 +89,32 @@ def get_packing_suggestions(location, activities, trip_type, trip_duration, peop
         return extract_items_from_suggestions(response.text)
     except:
         return []
+def fallback_packing_suggestions(location, activities, trip_type, trip_duration, people):
+    client = Groq(api_key=GROQ_API_KEY)
+    
+    # Construct the correct query with people details and the specific prompt
+    people_info = "; ".join(
+        [f"{p['name']} (Age: {p['age']}, Gender: {p['gender']}, Medical Needs: {p['medical_issues']})" for p in people]
+    )
+    query = f"Suggest a personalized packing list for {len(people)} people traveling to {location} for {activities}. " \
+            f"Include age, gender, and medical needs for each traveler. Traveler details: {people_info}."
+    
+    try:
+        # Call LLaMA 3.3 model with the updated query
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "system", "content": query}],
+            temperature=1,
+            max_completion_tokens=200,
+            top_p=1,
+            stream=False
+        )
+        # Extract and return the suggestions
+        return extract_items_from_suggestions(completion.choices[0].message.get("content", ""))
+    except Exception as e:
+        st.error(f"❌ Error generating fallback packing list: {e}")
+        return []
+        
 
 
 def filter_excessive_items(packing_list, trip_duration):
