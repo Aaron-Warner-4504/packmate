@@ -11,10 +11,10 @@ from docx import Document
 st.set_page_config(page_title="Smart Packing Assistant", page_icon="🎒", layout="wide")
 
 # Load API keys
-GEMINI_API_KEY = "AIzaSyBDEnO1lXyhUd6NctHbRqESI6BMdk61a8E"
-GROQ_API_KEY = "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"
-OPENCAGE_API_KEY = "993e21d6cca746a2bbebd2f6e02a8316"
-WEATHER_API_KEY = "96ae2a7fe449f44ad93813d140e40aa1"
+GEMINI_API_KEY = "your-gemini-api-key"
+GROQ_API_KEY = "your-groq-api-key"
+OPENCAGE_API_KEY = "your-opencage-api-key"
+WEATHER_API_KEY = "your-weather-api-key"
 
 # Configure Gemini API
 genai.configure(api_key=GEMINI_API_KEY)
