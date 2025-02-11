@@ -7,4 +7,4 @@ Welcome to **Packmate**! This repository contains the code for **Packmate**, ava
 ### Running Packmate with Streamlit
 To launch the **Streamlit** version, run the following command in your terminal:
 ```bash
-streamlit run streamlitpackmate.py
+streamlit run sudo.py
